@@ -1,0 +1,34 @@
+{
+  "name": "zkclear-contracts",
+  "version": "0.1.0",
+  "description": "ZKClear smart contracts for deposits and withdrawals",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:all": "hardhat run scripts/deploy-all.js",
+    "deploy:ethereum": "hardhat run scripts/deploy.js --network ethereum",
+    "deploy:mantle": "hardhat run scripts/deploy.js --network mantle",
+    "save-addresses": "hardhat run scripts/save-addresses.js",
+    "verify": "hardhat verify"
+  },
+  "keywords": [
+    "zkclear",
+    "smart-contracts",
+    "deposit",
+    "withdrawal"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.0",
+    "hardhat": "^2.19.0",
+    "chai": "^4.3.10",
+    "dotenv": "^16.3.1"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0"
+  }
+}
+
