@@ -1,36 +1,27 @@
+const hre = require("hardhat");
 const fs = require("fs");
 const path = require("path");
+const { deployContracts } = require("./deploy-helpers");
 
 async function main() {
+  const deployment = await deployContracts();
   const network = await hre.ethers.provider.getNetwork();
-  const chainId = Number(network.chainId);
-  
-  const [deployer] = await hre.ethers.getSigners();
-  
-  const DepositContract = await hre.ethers.getContractFactory("DepositContract");
-  const depositContract = await DepositContract.deploy();
-  await depositContract.waitForDeployment();
-  const depositAddress = await depositContract.getAddress();
-
-  const WithdrawalContract = await hre.ethers.getContractFactory("WithdrawalContract");
-  const withdrawalContract = await WithdrawalContract.deploy(depositAddress);
-  await withdrawalContract.waitForDeployment();
-  const withdrawalAddress = await withdrawalContract.getAddress();
 
   const addresses = {
-    chainId,
+    chainId: deployment.chainId,
     network: network.name,
-    deployer: deployer.address,
+    deployer: deployment.deployer,
     contracts: {
-      deposit: depositAddress,
-      withdrawal: withdrawalAddress,
+      deposit: deployment.depositAddress,
+      verifier: deployment.verifierAddress,
+      withdrawal: deployment.withdrawalAddress,
     },
     timestamp: new Date().toISOString(),
   };
 
-  const filename = `deployments-${chainId}.json`;
+  const filename = `deployments-${deployment.chainId}.json`;
   const filepath = path.join(__dirname, "..", filename);
-  
+
   fs.writeFileSync(filepath, JSON.stringify(addresses, null, 2));
   console.log(`\nAddresses saved to ${filename}`);
   console.log(JSON.stringify(addresses, null, 2));
@@ -42,4 +33,3 @@ main()
     console.error(error);
     process.exit(1);
   });
-

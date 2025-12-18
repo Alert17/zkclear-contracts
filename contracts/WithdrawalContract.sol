@@ -1,77 +1,193 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./VerifierContract.sol";
 
-contract WithdrawalContract is ReentrancyGuard {
+/**
+ * @title WithdrawalContract
+ * @notice Handles withdrawals with ZK proof verification (rollup-style)
+ * @dev Verifies:
+ *  1. Inclusion of withdrawal in withdrawals_root (merkle proof)
+ *  2. Nullifier hasn't been used (double-spend protection)
+ *  3. ZK proof of withdrawal validity
+ */
+contract WithdrawalContract is Ownable, ReentrancyGuard {
     event Withdrawal(
         address indexed user,
         uint256 indexed assetId,
         uint256 amount,
-        bytes32 proofHash
+        bytes32 indexed nullifier,
+        bytes32 withdrawalsRoot
     );
 
-    event SequencerUpdated(address indexed oldSequencer, address indexed newSequencer);
+    event VerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
 
-    address public sequencer;
-    mapping(bytes32 => bool) public processedWithdrawals;
+    /// Verifier contract for state root and nullifier checks
+    VerifierContract public verifier;
 
-    struct WithdrawalData {
-        address user;
-        uint256 assetId;
-        uint256 amount;
-        uint256 nonce;
-        bytes32 stateRoot;
-    }
+    /// Current withdrawals root from latest block
+    bytes32 public withdrawalsRoot;
 
     error InvalidUser();
     error InvalidAmount();
-    error WithdrawalAlreadyProcessed();
     error InvalidProof();
-    error OnlySequencer();
-    error InvalidSequencerAddress();
+    error InvalidVerifierAddress();
+    error NullifierAlreadyUsed();
+    error InvalidMerkleProof();
+    error InvalidWithdrawalsRoot();
 
-    modifier onlySequencer() {
-        if (msg.sender != sequencer) revert OnlySequencer();
+    modifier onlyValidVerifier() {
+        require(address(verifier) != address(0), "Verifier not set");
         _;
     }
 
-    constructor(address _sequencer) {
-        if (_sequencer == address(0)) revert InvalidSequencerAddress();
-        sequencer = _sequencer;
+    constructor(address _verifier, address _owner) Ownable(_owner) {
+        if (_verifier == address(0)) revert InvalidVerifierAddress();
+        verifier = VerifierContract(_verifier);
     }
 
+    /**
+     * @notice Withdraw assets with ZK proof
+     * @param withdrawalData Withdrawal data (user, assetId, amount, etc.)
+     * @param merkleProof Merkle proof for inclusion in withdrawals_root
+     * @param nullifier Nullifier to prevent double-spending
+     * @param zkProof ZK proof (STARK wrapped in SNARK) proving withdrawal validity
+     * @param withdrawalsRoot_ Withdrawals root from block containing this withdrawal
+     */
     function withdraw(
-        bytes calldata proof,
-        WithdrawalData calldata data
-    ) external nonReentrant {
-        if (data.amount == 0) revert InvalidAmount();
-        if (data.user != msg.sender) revert InvalidUser();
-        
-        bytes32 proofHash = keccak256(proof);
-        if (processedWithdrawals[proofHash]) revert WithdrawalAlreadyProcessed();
-        
-        if (!verifyProof(proof, data)) revert InvalidProof();
-        
-        processedWithdrawals[proofHash] = true;
-        
-        emit Withdrawal(data.user, data.assetId, data.amount, proofHash);
+        WithdrawalData calldata withdrawalData,
+        bytes calldata merkleProof,
+        bytes32 nullifier,
+        bytes calldata zkProof,
+        bytes32 withdrawalsRoot_
+    ) external nonReentrant onlyValidVerifier {
+        if (withdrawalData.amount == 0) revert InvalidAmount();
+        if (withdrawalData.user != msg.sender) revert InvalidUser();
+
+        // Check nullifier hasn't been used
+        if (verifier.isNullifierUsed(nullifier)) revert NullifierAlreadyUsed();
+
+        // Verify withdrawals root matches current
+        if (withdrawalsRoot_ != withdrawalsRoot && withdrawalsRoot_ != bytes32(0)) {
+            revert InvalidWithdrawalsRoot();
+        }
+
+        // Verify merkle inclusion proof
+        if (!verifyMerkleProof(withdrawalData, merkleProof, withdrawalsRoot_)) {
+            revert InvalidMerkleProof();
+        }
+
+        // Verify ZK proof
+        if (!verifyWithdrawalProof(withdrawalData, zkProof)) {
+            revert InvalidProof();
+        }
+
+        // Mark nullifier as used
+        verifier.markNullifierUsed(nullifier);
+
+        emit Withdrawal(
+            withdrawalData.user,
+            withdrawalData.assetId,
+            withdrawalData.amount,
+            nullifier,
+            withdrawalsRoot_
+        );
     }
 
-    function verifyProof(
-        bytes calldata proof,
-        WithdrawalData calldata data
+    /**
+     * @notice Update withdrawals root (called by sequencer after block submission)
+     * @param newWithdrawalsRoot New withdrawals root
+     */
+    function updateWithdrawalsRoot(bytes32 newWithdrawalsRoot) external onlyOwner {
+        withdrawalsRoot = newWithdrawalsRoot;
+    }
+
+    /**
+     * @notice Verify merkle inclusion proof
+     * @param withdrawalData Withdrawal data
+     * @param merkleProof Merkle proof
+     * @param root Withdrawals root
+     * @return true if proof is valid
+     */
+    function verifyMerkleProof(
+        WithdrawalData calldata withdrawalData,
+        bytes calldata merkleProof,
+        bytes32 root
     ) internal pure returns (bool) {
-        if (proof.length == 0) return false;
+        // TODO: Implement actual merkle proof verification
+        // For now, basic validation
+        if (merkleProof.length == 0) return false;
+        if (root == bytes32(0)) return false;
+
+        // Placeholder: verify leaf hash matches expected
+        bytes32 leaf = keccak256(
+            abi.encodePacked(
+                withdrawalData.user,
+                withdrawalData.assetId,
+                withdrawalData.amount,
+                withdrawalData.chainId
+            )
+        );
+
+        // TODO: Verify merkle proof path using merkleProof and root
+        // This will use a merkle tree library to verify inclusion
+        // In production: verifyMerkleTree(leaf, merkleProof, root)
+        // For now, validate inputs and leaf computation
+        if (leaf == bytes32(0)) return false;
         
+        // Use merkleProof and root in a basic validation (will be replaced with actual verification)
+        // This prevents "unused parameter" warning while placeholder implementation
+        bytes32 proofHash = keccak256(abi.encodePacked(merkleProof, root));
+        if (proofHash == bytes32(0)) return false;
+
         return true;
     }
 
-    function setSequencer(address _sequencer) external onlySequencer {
-        if (_sequencer == address(0)) revert InvalidSequencerAddress();
-        address oldSequencer = sequencer;
-        sequencer = _sequencer;
-        emit SequencerUpdated(oldSequencer, _sequencer);
+    /**
+     * @notice Verify ZK proof for withdrawal
+     * @param zkProof ZK proof
+     * @return true if proof is valid
+     */
+    function verifyWithdrawalProof(
+        WithdrawalData calldata /* withdrawalData */,
+        bytes calldata zkProof
+    ) internal pure returns (bool) {
+        // TODO: Replace with actual ZK verifier (SNARK verifier wrapping STARK)
+        // withdrawalData will be used in production to verify proof
+        // For now, basic validation
+        if (zkProof.length == 0) return false;
+
+        // Placeholder: accept non-empty proof
+        // In production, this will call the actual SNARK verifier with withdrawalData
+        return true;
     }
+
+    /**
+     * @notice Set verifier contract
+     * @param _verifier New verifier contract address
+     */
+    function setVerifier(address _verifier) external onlyOwner {
+        if (_verifier == address(0)) revert InvalidVerifierAddress();
+        address oldVerifier = address(verifier);
+        verifier = VerifierContract(_verifier);
+        emit VerifierUpdated(oldVerifier, _verifier);
+    }
+
+    /**
+     * @notice Get current withdrawals root
+     * @return Current withdrawals root
+     */
+    function getWithdrawalsRoot() external view returns (bytes32) {
+        return withdrawalsRoot;
+    }
+}
+
+struct WithdrawalData {
+    address user;
+    uint256 assetId;
+    uint256 amount;
+    uint256 chainId;
 }
 

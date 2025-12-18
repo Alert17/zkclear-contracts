@@ -23,15 +23,30 @@ Handles user deposits on each supported EVM chain. Supports both ERC20 tokens an
 - `topics[2]` = assetId (uint256)
 - `data` = amount (uint256, 32 bytes)
 
-### WithdrawalContract
-Handles withdrawals with ZK proof verification.
+### VerifierContract
+Handles block proof verification and maintains state_root on-chain (rollup-style).
 
 **Functions:**
-- `withdraw(bytes calldata proof, WithdrawalData calldata data)` - Withdraw with ZK proof
+- `submitBlockProof(uint256 blockId, bytes32 prevStateRoot, bytes32 newStateRoot, bytes32 withdrawalsRoot, bytes calldata proof)` - Submit block proof (sequencer only)
+- `isNullifierUsed(bytes32 nullifier)` - Check if nullifier has been used
+- `markNullifierUsed(bytes32 nullifier)` - Mark nullifier as used (called by WithdrawalContract)
+- `getStateRoot()` - Get current state root
 - `setSequencer(address _sequencer)` - Update sequencer address (sequencer only)
 
 **Events:**
-- `Withdrawal(address indexed user, uint256 indexed assetId, uint256 amount, bytes32 proofHash)`
+- `StateRootUpdated(uint256 indexed blockId, bytes32 indexed prevStateRoot, bytes32 indexed newStateRoot, bytes32 withdrawalsRoot)`
+
+### WithdrawalContract
+Handles withdrawals with ZK proof verification (rollup-style).
+
+**Functions:**
+- `withdraw(WithdrawalData calldata withdrawalData, bytes calldata merkleProof, bytes32 nullifier, bytes calldata zkProof, bytes32 withdrawalsRoot_)` - Withdraw with ZK proof
+- `updateWithdrawalsRoot(bytes32 newWithdrawalsRoot)` - Update withdrawals root (owner only)
+- `getWithdrawalsRoot()` - Get current withdrawals root
+- `setVerifier(address _verifier)` - Update verifier contract (owner only)
+
+**Events:**
+- `Withdrawal(address indexed user, uint256 indexed assetId, uint256 amount, bytes32 indexed nullifier, bytes32 withdrawalsRoot)`
 
 **Note:** ZK proof verification is currently a placeholder. Will be implemented with actual ZK verifier.
 
@@ -65,12 +80,10 @@ npm run deploy:ethereum
 npm run deploy:mantle
 ```
 
-### Deploy to all networks:
-```bash
-npm run deploy:all
-```
-
-This will deploy to all configured networks sequentially using the same private key.
+Each deployment will:
+- Deploy DepositContract, VerifierContract, and WithdrawalContract
+- Verify contracts on block explorer (Ethereum only)
+- Display deployment summary
 
 ### Save deployment addresses:
 ```bash
