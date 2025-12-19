@@ -59,7 +59,7 @@ describe("On-Chain Verification", function () {
       const proofFile = path.join(__dirname, "..", "proof_for_solidity.js");
       
       if (!fs.existsSync(proofFile)) {
-        console.log("⚠️  Proof file not found. Run: cargo run --bin generate_and_format_proof --features winterfell,arkworks");
+        console.log("⚠️  Proof file not found. Run: cargo run --bin generate_and_format_proof --features stark,arkworks,bin");
         this.skip();
         return;
       }
@@ -101,7 +101,7 @@ describe("On-Chain Verification", function () {
       const proofFile = path.join(__dirname, "..", "proof_for_solidity.js");
       
       if (!fs.existsSync(proofFile)) {
-        console.log("⚠️  Proof file not found. Run: cargo run --bin generate_and_format_proof --features winterfell,arkworks");
+        console.log("⚠️  Proof file not found. Run: cargo run --bin generate_and_format_proof --features stark,arkworks,bin");
         this.skip();
         return;
       }
