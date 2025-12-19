@@ -6,9 +6,14 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
+    "test:coverage": "hardhat coverage",
+    "deploy:testnet": "hardhat run scripts/deploy-testnet.js --network hardhat",
+    "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
+    "deploy:base-sepolia": "hardhat run scripts/deploy.js --network base_sepolia",
     "deploy:ethereum": "hardhat run scripts/deploy.js --network ethereum",
-    "deploy:mantle": "hardhat run scripts/deploy.js --network mantle",
+    "deploy:base": "hardhat run scripts/deploy.js --network base",
     "save-addresses": "hardhat run scripts/save-addresses.js",
+    "set-verifying-key": "hardhat run scripts/set-verifying-key.js --network hardhat",
     "verify": "hardhat verify"
   },
   "keywords": [

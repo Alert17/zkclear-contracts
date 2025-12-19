@@ -10,137 +10,202 @@ describe("WithdrawalContract", function () {
     const depositContract = await DepositContract.deploy();
     await depositContract.waitForDeployment();
 
+    // Deploy VerifierContract first (needed for WithdrawalContract)
+    const VerifierContract = await ethers.getContractFactory("VerifierContract");
+    const initialStateRoot = ethers.ZeroHash;
+    const verifierContract = await VerifierContract.deploy(
+      sequencer.address,
+      initialStateRoot,
+      owner.address,
+      ethers.ZeroAddress // No Groth16Verifier for testing
+    );
+    await verifierContract.waitForDeployment();
+
     const WithdrawalContract = await ethers.getContractFactory("WithdrawalContract");
-    const withdrawalContract = await WithdrawalContract.deploy(sequencer.address);
+    const withdrawalContract = await WithdrawalContract.deploy(
+      await verifierContract.getAddress(),
+      owner.address
+    );
     await withdrawalContract.waitForDeployment();
 
-    return { depositContract, withdrawalContract, owner, user, sequencer };
+    return { depositContract, withdrawalContract, verifierContract, owner, user, sequencer };
   }
 
   let depositContract;
   let withdrawalContract;
+  let verifierContract;
   let owner;
   let user;
   let sequencer;
 
   beforeEach(async function () {
-    ({ depositContract, withdrawalContract, owner, user, sequencer } = await loadFixture(deployFixture));
+    ({ depositContract, withdrawalContract, verifierContract, owner, user, sequencer } = await loadFixture(deployFixture));
   });
 
   describe("Withdrawal", function () {
     it("Should emit Withdrawal event", async function () {
-      const proof = ethers.toUtf8Bytes("proof");
       const withdrawalData = {
         user: user.address,
         assetId: 1,
         amount: ethers.parseEther("1.0"),
-        nonce: 0,
-        stateRoot: ethers.ZeroHash,
+        chainId: 1,
       };
+      const merkleProof = "0x" + "01".repeat(32); // Non-empty merkle proof
+      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("nullifier"));
+      const zkProof = "0x" + "01".repeat(256); // Non-empty ZK proof
+      const withdrawalsRoot = ethers.keccak256(ethers.toUtf8Bytes("withdrawals"));
 
-      await expect(
-        withdrawalContract.connect(user).withdraw(proof, withdrawalData)
-      )
+      // Set withdrawals root first
+      await withdrawalContract.connect(owner).updateWithdrawalsRoot(withdrawalsRoot);
+
+      const tx = await withdrawalContract.connect(user).withdraw(
+        withdrawalData,
+        merkleProof,
+        nullifier,
+        zkProof,
+        withdrawalsRoot
+      );
+
+      await expect(tx)
         .to.emit(withdrawalContract, "Withdrawal")
-        .withArgs(user.address, withdrawalData.assetId, withdrawalData.amount, ethers.anyValue);
+        .withArgs(user.address, withdrawalData.assetId, withdrawalData.amount, nullifier, withdrawalsRoot);
     });
 
     it("Should reject zero amount", async function () {
-      const proof = ethers.toUtf8Bytes("proof");
       const withdrawalData = {
         user: user.address,
         assetId: 1,
         amount: 0,
-        nonce: 0,
-        stateRoot: ethers.ZeroHash,
+        chainId: 1,
       };
+      const merkleProof = "0x" + "01".repeat(32);
+      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("nullifier"));
+      const zkProof = "0x" + "01".repeat(256);
+      const withdrawalsRoot = ethers.keccak256(ethers.toUtf8Bytes("withdrawals"));
+
+      await withdrawalContract.connect(owner).updateWithdrawalsRoot(withdrawalsRoot);
 
       await expect(
-        withdrawalContract.connect(user).withdraw(proof, withdrawalData)
+        withdrawalContract.connect(user).withdraw(
+          withdrawalData,
+          merkleProof,
+          nullifier,
+          zkProof,
+          withdrawalsRoot
+        )
       ).to.be.revertedWithCustomError(withdrawalContract, "InvalidAmount");
     });
 
     it("Should reject invalid user", async function () {
-      const proof = ethers.toUtf8Bytes("proof");
       const withdrawalData = {
-        user: owner.address,
+        user: owner.address, // Different user
         assetId: 1,
         amount: ethers.parseEther("1.0"),
-        nonce: 0,
-        stateRoot: ethers.ZeroHash,
+        chainId: 1,
       };
+      const merkleProof = "0x" + "01".repeat(32);
+      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("nullifier"));
+      const zkProof = "0x" + "01".repeat(256);
+      const withdrawalsRoot = ethers.keccak256(ethers.toUtf8Bytes("withdrawals"));
+
+      await withdrawalContract.connect(owner).updateWithdrawalsRoot(withdrawalsRoot);
 
       await expect(
-        withdrawalContract.connect(user).withdraw(proof, withdrawalData)
+        withdrawalContract.connect(user).withdraw(
+          withdrawalData,
+          merkleProof,
+          nullifier,
+          zkProof,
+          withdrawalsRoot
+        )
       ).to.be.revertedWithCustomError(withdrawalContract, "InvalidUser");
     });
 
-    it("Should prevent duplicate withdrawals", async function () {
-      const proof = ethers.toUtf8Bytes("proof");
+    it("Should prevent duplicate withdrawals (nullifier)", async function () {
       const withdrawalData = {
         user: user.address,
         assetId: 1,
         amount: ethers.parseEther("1.0"),
-        nonce: 0,
-        stateRoot: ethers.ZeroHash,
+        chainId: 1,
       };
+      const merkleProof = "0x" + "01".repeat(32);
+      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("nullifier"));
+      const zkProof = "0x" + "01".repeat(256);
+      const withdrawalsRoot = ethers.keccak256(ethers.toUtf8Bytes("withdrawals"));
 
-      await withdrawalContract.connect(user).withdraw(proof, withdrawalData);
+      await withdrawalContract.connect(owner).updateWithdrawalsRoot(withdrawalsRoot);
 
+      // First withdrawal
+      await withdrawalContract.connect(user).withdraw(
+        withdrawalData,
+        merkleProof,
+        nullifier,
+        zkProof,
+        withdrawalsRoot
+      );
+
+      // Second withdrawal with same nullifier should fail
       await expect(
-        withdrawalContract.connect(user).withdraw(proof, withdrawalData)
-      ).to.be.revertedWithCustomError(withdrawalContract, "WithdrawalAlreadyProcessed");
+        withdrawalContract.connect(user).withdraw(
+          withdrawalData,
+          merkleProof,
+          nullifier, // Same nullifier
+          zkProof,
+          withdrawalsRoot
+        )
+      ).to.be.revertedWithCustomError(withdrawalContract, "NullifierAlreadyUsed");
     });
 
     it("Should reject empty proof", async function () {
-      const proof = ethers.toUtf8Bytes("");
       const withdrawalData = {
         user: user.address,
         assetId: 1,
         amount: ethers.parseEther("1.0"),
-        nonce: 0,
-        stateRoot: ethers.ZeroHash,
+        chainId: 1,
       };
+      const merkleProof = "0x" + "01".repeat(32);
+      const nullifier = ethers.keccak256(ethers.toUtf8Bytes("nullifier"));
+      const zkProof = "0x"; // Empty ZK proof
+      const withdrawalsRoot = ethers.keccak256(ethers.toUtf8Bytes("withdrawals"));
+
+      await withdrawalContract.connect(owner).updateWithdrawalsRoot(withdrawalsRoot);
 
       await expect(
-        withdrawalContract.connect(user).withdraw(proof, withdrawalData)
+        withdrawalContract.connect(user).withdraw(
+          withdrawalData,
+          merkleProof,
+          nullifier,
+          zkProof,
+          withdrawalsRoot
+        )
       ).to.be.revertedWithCustomError(withdrawalContract, "InvalidProof");
     });
   });
 
-  describe("Sequencer Management", function () {
-    it("Should allow sequencer to update sequencer address", async function () {
-      const newSequencer = ethers.Wallet.createRandom().address;
+  describe("Verifier Management", function () {
+    it("Should allow owner to update withdrawals root", async function () {
+      const newWithdrawalsRoot = ethers.keccak256(ethers.toUtf8Bytes("new"));
 
-      await expect(
-        withdrawalContract.connect(sequencer).setSequencer(newSequencer)
-      )
-        .to.emit(withdrawalContract, "SequencerUpdated")
-        .withArgs(sequencer.address, newSequencer);
+      await withdrawalContract.connect(owner).updateWithdrawalsRoot(newWithdrawalsRoot);
 
-      const updatedSequencer = await withdrawalContract.sequencer();
-      expect(updatedSequencer).to.equal(newSequencer);
+      expect(await withdrawalContract.withdrawalsRoot()).to.equal(newWithdrawalsRoot);
     });
 
-    it("Should reject non-sequencer from updating sequencer", async function () {
-      const newSequencer = ethers.Wallet.createRandom().address;
+    it("Should reject non-owner from updating withdrawals root", async function () {
+      const newWithdrawalsRoot = ethers.keccak256(ethers.toUtf8Bytes("new"));
 
       await expect(
-        withdrawalContract.connect(user).setSequencer(newSequencer)
-      ).to.be.revertedWithCustomError(withdrawalContract, "OnlySequencer");
+        withdrawalContract.connect(user).updateWithdrawalsRoot(newWithdrawalsRoot)
+      ).to.be.revertedWithCustomError(withdrawalContract, "OwnableUnauthorizedAccount");
     });
+  });
 
-    it("Should reject zero address for sequencer", async function () {
-      await expect(
-        withdrawalContract.connect(sequencer).setSequencer(ethers.ZeroAddress)
-      ).to.be.revertedWithCustomError(withdrawalContract, "InvalidSequencerAddress");
-    });
-
-    it("Should reject zero address in constructor", async function () {
+  describe("Constructor", function () {
+    it("Should reject zero address for verifier in constructor", async function () {
       const WithdrawalContract = await ethers.getContractFactory("WithdrawalContract");
       await expect(
-        WithdrawalContract.deploy(ethers.ZeroAddress)
-      ).to.be.revertedWithCustomError(WithdrawalContract, "InvalidSequencerAddress");
+        WithdrawalContract.deploy(ethers.ZeroAddress, owner.address)
+      ).to.be.revertedWithCustomError(WithdrawalContract, "InvalidVerifierAddress");
     });
   });
 });

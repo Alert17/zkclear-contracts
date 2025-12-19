@@ -1,6 +1,37 @@
 # ZKClear Contracts
 
-Smart contracts for ZKClear deposit and withdrawal functionality. Currently supports Ethereum and Mantle for v1.
+> 📋 **Environment Setup**: See [README_ENV.md](./README_ENV.md) for instructions on setting up environment variables and getting testnet tokens.
+
+## Quick Start
+
+1. **Set up environment:**
+   ```bash
+   cp .env.example .env
+   # Fill in PRIVATE_KEY, RPC URLs and API keys in .env
+   ```
+
+2. **Get testnet tokens:**
+   - **Sepolia (Ethereum testnet)**: https://sepoliafaucet.com/ (~0.1 SepoliaETH)
+   - **Base Sepolia (Base testnet)**: https://www.coinbase.com/faucets/base-ethereum-goerli-faucet (~0.1 ETH)
+
+3. **Deploy:**
+   ```bash
+   # Local network (no credentials needed)
+   npm run deploy:testnet
+   
+   # Sepolia testnet
+   npm run deploy:sepolia
+   
+   # Base Sepolia testnet
+   npm run deploy:base-sepolia
+   ```
+
+4. **Set verifying key:**
+   ```bash
+   GROTH16_VERIFIER_ADDRESS=<address> npm run set-verifying-key -- --network <network>
+   ```
+
+Smart contracts for ZKClear deposit and withdrawal functionality. Currently supports Ethereum and Base for v1.
 
 ## Contracts
 
@@ -67,9 +98,11 @@ cp .env.example .env
 PRIVATE_KEY=your_private_key_here
 
 ETHEREUM_RPC=https://eth.llamarpc.com
-MANTLE_RPC=https://rpc.mantle.xyz
+BASE_RPC=https://mainnet.base.org
+BASE_SEPOLIA_RPC=https://sepolia.base.org
 
 ETHERSCAN_API_KEY=your_etherscan_api_key
+BASESCAN_API_KEY=your_basescan_api_key
 ```
 
 ## Deployment
@@ -77,7 +110,7 @@ ETHERSCAN_API_KEY=your_etherscan_api_key
 ### Deploy to single network:
 ```bash
 npm run deploy:ethereum
-npm run deploy:mantle
+npm run deploy:base
 ```
 
 Each deployment will:
@@ -108,13 +141,16 @@ Tests cover:
 
 All networks are configured via environment variables in `hardhat.config.js`:
 - `PRIVATE_KEY` - Deployer private key (same for all networks)
-- `ETHEREUM_RPC`, `MANTLE_RPC` - RPC URLs
-- `ETHERSCAN_API_KEY` - Block explorer API key for verification (Ethereum only)
+- `ETHEREUM_RPC`, `BASE_RPC`, `BASE_SEPOLIA_RPC` - RPC URLs
+- `ETHERSCAN_API_KEY` - Block explorer API key for verification (Ethereum)
+- `BASESCAN_API_KEY` - Block explorer API key for verification (Base)
 
 ## Chain IDs
 
 - Ethereum: 1
-- Mantle: 5000
+- Sepolia (Ethereum testnet): 11155111
+- Base: 8453
+- Base Sepolia (Base testnet): 84532
 
 ## Integration with Core
 
