@@ -96,16 +96,20 @@ contract Groth16Verifier {
         }
 
         // Compute vk_x (linear combination of gamma_abc with public inputs)
+        // Optimized: reduce storage reads and use unchecked arithmetic where safe
         // gamma_abc[0] is the constant term, gamma_abc[1..24] are for public inputs
-        Pairing.G1Point memory vk_x = Pairing.G1Point(0, 0);
-        // Start with constant term
-        vk_x = Pairing.plus(vk_x, vk.gamma_abc[0]);
+        Pairing.G1Point memory vk_x = vk.gamma_abc[0]; // Start with constant term
+        
         // Add public input terms
-        for (uint256 i = 0; i < _publicInputs.length; i++) {
-            vk_x = Pairing.plus(
-                vk_x,
-                Pairing.scalar_mul(vk.gamma_abc[i + 1], _publicInputs[i])
-            );
+        // Optimized: cache array length and use unchecked for loop counter
+        uint256 publicInputsLength = _publicInputs.length;
+        unchecked {
+            for (uint256 i = 0; i < publicInputsLength; ++i) {
+                vk_x = Pairing.plus(
+                    vk_x,
+                    Pairing.scalar_mul(vk.gamma_abc[i + 1], _publicInputs[i])
+                );
+            }
         }
 
         // Verify pairing equation:

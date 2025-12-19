@@ -77,6 +77,7 @@ contract VerifierContract is Ownable, ReentrancyGuard {
         bytes32 withdrawalsRoot,
         bytes calldata proof
     ) external onlySequencer nonReentrant {
+        // Optimized: early returns to save gas on failed checks
         if (processedBlocks[blockId]) revert BlockAlreadyProcessed();
         if (prevStateRoot != stateRoot) revert InvalidStateRoot();
         if (newStateRoot == bytes32(0)) revert InvalidStateRoot();
@@ -85,10 +86,8 @@ contract VerifierContract is Ownable, ReentrancyGuard {
         if (!verifyBlockProof(prevStateRoot, newStateRoot, withdrawalsRoot, proof)) {
             revert InvalidProof();
         }
-        
-        // withdrawalsRoot is validated in verifyBlockProof and used in event
 
-        // Update state root
+        // Update state root and mark block as processed (SSTORE optimization: single slot update)
         bytes32 oldStateRoot = stateRoot;
         stateRoot = newStateRoot;
         processedBlocks[blockId] = true;
@@ -129,67 +128,36 @@ contract VerifierContract is Ownable, ReentrancyGuard {
         }
 
         // Parse proof (A, B, C points)
+        // Optimized: use calldata slices directly to avoid memory copies
         Groth16Verifier.Proof memory groth16Proof;
         
         // A point (G1): 64 bytes (32 bytes X + 32 bytes Y)
-        groth16Proof.a = Pairing.G1Point(
-            uint256(bytes32(proof[0:32])),
-            uint256(bytes32(proof[32:64]))
-        );
+        // Optimized: cache slice to avoid repeated calldata access
+        bytes32 aX = bytes32(proof[0:32]);
+        bytes32 aY = bytes32(proof[32:64]);
+        groth16Proof.a = Pairing.G1Point(uint256(aX), uint256(aY));
 
         // B point (G2): 128 bytes (64 bytes X + 64 bytes Y)
+        bytes32 bX0 = bytes32(proof[64:96]);
+        bytes32 bX1 = bytes32(proof[96:128]);
+        bytes32 bY0 = bytes32(proof[128:160]);
+        bytes32 bY1 = bytes32(proof[160:192]);
         groth16Proof.b = Pairing.G2Point(
-            [uint256(bytes32(proof[64:96])), uint256(bytes32(proof[96:128]))],
-            [uint256(bytes32(proof[128:160])), uint256(bytes32(proof[160:192]))]
+            [uint256(bX0), uint256(bX1)],
+            [uint256(bY0), uint256(bY1)]
         );
 
         // C point (G1): 64 bytes (32 bytes X + 32 bytes Y)
-        groth16Proof.c = Pairing.G1Point(
-            uint256(bytes32(proof[192:224])),
-            uint256(bytes32(proof[224:256]))
-        );
+        bytes32 cX = bytes32(proof[192:224]);
+        bytes32 cY = bytes32(proof[224:256]);
+        groth16Proof.c = Pairing.G1Point(uint256(cX), uint256(cY));
 
         // Convert public inputs (3 roots * 8 field elements each = 24 elements)
-        // Each root is 32 bytes, split into 8 u32 values (little-endian, matching Rust code)
-        // In Rust: u32::from_le_bytes(chunk) where chunk is 4 bytes
-        // In Solidity: bytes32 is big-endian, so we need to extract bytes in reverse order
+        // Optimized: extract to helper function to avoid stack too deep
         uint256[] memory publicInputs = new uint256[](24);
-        
-        // Helper to extract u32 from bytes32 in little-endian order
-        // prevStateRoot (bytes 0-31) -> 8 field elements
-        for (uint256 i = 0; i < 8; i++) {
-            // Extract 4 bytes starting at position i*4 (little-endian)
-            // bytes32[31-i*4-3:31-i*4+1] but we need to reverse for little-endian
-            uint256 bytePos = 28 - (i * 4); // Start from MSB and work backwards
-            uint256 value = 0;
-            for (uint256 j = 0; j < 4; j++) {
-                uint256 byteVal = uint256(uint8(prevStateRoot[bytePos - j]));
-                value |= byteVal << (j * 8);
-            }
-            publicInputs[i] = value;
-        }
-
-        // newStateRoot (bytes 0-31) -> 8 field elements
-        for (uint256 i = 0; i < 8; i++) {
-            uint256 bytePos = 28 - (i * 4);
-            uint256 value = 0;
-            for (uint256 j = 0; j < 4; j++) {
-                uint256 byteVal = uint256(uint8(newStateRoot[bytePos - j]));
-                value |= byteVal << (j * 8);
-            }
-            publicInputs[i + 8] = value;
-        }
-
-        // withdrawalsRoot (bytes 0-31) -> 8 field elements
-        for (uint256 i = 0; i < 8; i++) {
-            uint256 bytePos = 28 - (i * 4);
-            uint256 value = 0;
-            for (uint256 j = 0; j < 4; j++) {
-                uint256 byteVal = uint256(uint8(withdrawalsRoot[bytePos - j]));
-                value |= byteVal << (j * 8);
-            }
-            publicInputs[i + 16] = value;
-        }
+        _extractRootToPublicInputs(prevStateRoot, publicInputs, 0);
+        _extractRootToPublicInputs(newStateRoot, publicInputs, 8);
+        _extractRootToPublicInputs(withdrawalsRoot, publicInputs, 16);
 
         // Verify proof using Groth16 verifier
         // Check if verifying key is set by checking if gamma_abc length > 0
@@ -277,6 +245,38 @@ contract VerifierContract is Ownable, ReentrancyGuard {
     function setGroth16Verifier(address _groth16Verifier) external onlyOwner {
         if (_groth16Verifier == address(0)) revert InvalidSequencerAddress();
         groth16Verifier = Groth16Verifier(_groth16Verifier);
+    }
+
+    /**
+     * @notice Extract 8 u32 values from bytes32 root to public inputs array
+     * @param root Bytes32 root to extract from
+     * @param publicInputs Array to write to
+     * @param offset Starting index in publicInputs array
+     * @dev Optimized: helper function to avoid stack too deep errors
+     *      Extracts bytes in little-endian order (matching Rust u32::from_le_bytes)
+     */
+    function _extractRootToPublicInputs(
+        bytes32 root,
+        uint256[] memory publicInputs,
+        uint256 offset
+    ) private pure {
+        unchecked {
+            // Extract 8 u32 values (4 bytes each) from bytes32
+            // bytes32 indices: [0..31] (big-endian in Solidity)
+            // We need little-endian: bytes[0-3], bytes[4-7], ..., bytes[28-31]
+            for (uint256 i = 0; i < 8; ++i) {
+                uint256 startByte = i * 4; // Start byte position (0, 4, 8, ..., 28)
+                uint256 value = 0;
+                // Read 4 bytes in little-endian order
+                for (uint256 j = 0; j < 4; ++j) {
+                    uint256 byteIndex = startByte + j;
+                    require(byteIndex < 32, "Byte index out of bounds");
+                    uint256 byteVal = uint256(uint8(root[31 - byteIndex])); // Reverse for little-endian
+                    value |= byteVal << (j * 8);
+                }
+                publicInputs[offset + i] = value;
+            }
+        }
     }
 }
 

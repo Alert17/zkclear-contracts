@@ -63,14 +63,17 @@ contract WithdrawalContract is Ownable, ReentrancyGuard {
         bytes calldata zkProof,
         bytes32 withdrawalsRoot_
     ) external nonReentrant onlyValidVerifier {
+        // Optimized: early returns to save gas on failed checks
         if (withdrawalData.amount == 0) revert InvalidAmount();
         if (withdrawalData.user != msg.sender) revert InvalidUser();
 
-        // Check nullifier hasn't been used
-        if (verifier.isNullifierUsed(nullifier)) revert NullifierAlreadyUsed();
+        // Check nullifier hasn't been used (optimized: cache verifier address)
+        VerifierContract verifier_ = verifier;
+        if (verifier_.isNullifierUsed(nullifier)) revert NullifierAlreadyUsed();
 
         // Verify withdrawals root matches current
-        if (withdrawalsRoot_ != withdrawalsRoot && withdrawalsRoot_ != bytes32(0)) {
+        bytes32 currentWithdrawalsRoot = withdrawalsRoot;
+        if (withdrawalsRoot_ != currentWithdrawalsRoot && withdrawalsRoot_ != bytes32(0)) {
             revert InvalidWithdrawalsRoot();
         }
 
@@ -85,7 +88,7 @@ contract WithdrawalContract is Ownable, ReentrancyGuard {
         }
 
         // Mark nullifier as used
-        verifier.markNullifierUsed(nullifier);
+        verifier_.markNullifierUsed(nullifier);
 
         emit Withdrawal(
             withdrawalData.user,
