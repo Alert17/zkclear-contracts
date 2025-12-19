@@ -21,13 +21,21 @@ async function deployContracts() {
   const depositAddress = await depositContract.getAddress();
   console.log("DepositContract deployed to:", depositAddress);
 
+  // Deploy Groth16Verifier (can be set later with verifying key)
+  const Groth16Verifier = await hre.ethers.getContractFactory("Groth16Verifier");
+  const groth16Verifier = await Groth16Verifier.deploy();
+  await groth16Verifier.waitForDeployment();
+  const groth16VerifierAddress = await groth16Verifier.getAddress();
+  console.log("Groth16Verifier deployed to:", groth16VerifierAddress);
+
   // Deploy VerifierContract
   const VerifierContract = await hre.ethers.getContractFactory("VerifierContract");
   const initialStateRoot = hre.ethers.ZeroHash; // Will be updated after first block
   const verifierContract = await VerifierContract.deploy(
     deployer.address, // sequencer
     initialStateRoot,
-    deployer.address // owner
+    deployer.address, // owner
+    groth16VerifierAddress // groth16Verifier
   );
   await verifierContract.waitForDeployment();
   const verifierAddress = await verifierContract.getAddress();
@@ -44,10 +52,12 @@ async function deployContracts() {
     chainId,
     deployer: deployer.address,
     depositAddress,
+    groth16VerifierAddress,
     verifierAddress,
     withdrawalAddress,
     contracts: {
       deposit: depositContract,
+      groth16Verifier: groth16Verifier,
       verifier: verifierContract,
       withdrawal: withdrawalContract,
     },
@@ -92,8 +102,17 @@ async function verifyContracts(deployment) {
 
   try {
     await hre.run("verify:verify", {
+      address: deployment.groth16VerifierAddress,
+      constructorArguments: [],
+    });
+  } catch (error) {
+    console.log("Error verifying Groth16Verifier:", error.message);
+  }
+
+  try {
+    await hre.run("verify:verify", {
       address: deployment.verifierAddress,
-      constructorArguments: [deployment.deployer, initialStateRoot, deployment.deployer],
+      constructorArguments: [deployment.deployer, initialStateRoot, deployment.deployer, deployment.groth16VerifierAddress],
     });
   } catch (error) {
     console.log("Error verifying VerifierContract:", error.message);
