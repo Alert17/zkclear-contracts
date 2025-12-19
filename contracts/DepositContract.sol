@@ -27,7 +27,11 @@ contract DepositContract is Ownable, ReentrancyGuard {
     }
 
     function deposit(uint256 assetId, uint256 amount) external nonReentrant {
+        // Security: Input validation
         require(amount > 0, "Amount must be greater than 0");
+        require(assetId > 0, "Invalid asset ID");
+        require(msg.sender != address(0), "Invalid sender");
+        
         address tokenAddress = assetAddresses[assetId];
         require(tokenAddress != address(0), "Asset not registered");
         
@@ -52,7 +56,10 @@ contract DepositContract is Ownable, ReentrancyGuard {
     }
 
     function depositNative(uint256 assetId) external payable nonReentrant {
+        // Security: Input validation
         require(msg.value > 0, "Amount must be greater than 0");
+        require(assetId > 0, "Invalid asset ID");
+        require(msg.sender != address(0), "Invalid sender");
         require(assetAddresses[assetId] == address(0), "Use ERC20 deposit for this asset");
         
         bytes32 txHash = keccak256(
