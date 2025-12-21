@@ -8,7 +8,23 @@ const hre = require("hardhat");
  */
 async function deployContracts() {
   const chainId = await hre.ethers.provider.getNetwork().then((n) => Number(n.chainId));
-  const [deployer] = await hre.ethers.getSigners();
+  const signers = await hre.ethers.getSigners();
+  
+  if (!signers || signers.length === 0) {
+    throw new Error(
+      "No signers found! Please set PRIVATE_KEY in .env file.\n" +
+      "Example: PRIVATE_KEY=0x1234567890abcdef..."
+    );
+  }
+  
+  const [deployer] = signers;
+  
+  if (!deployer) {
+    throw new Error(
+      "Deployer account not found! Please set PRIVATE_KEY in .env file.\n" +
+      "Example: PRIVATE_KEY=0x1234567890abcdef..."
+    );
+  }
 
   console.log(`Deploying to chain ID: ${chainId}`);
   console.log("Deploying contracts with account:", deployer.address);
